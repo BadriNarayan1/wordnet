@@ -8,12 +8,13 @@ import edu.princeton.cs.algs4.Stack;
 
 public class check {
     public static void main(String[] args) {
-        Stack<Integer> test = new Stack<Integer>();
-        test.push(1);
-        test.push(2);
-        test.push(3);
-        for (int i : test) {
-            System.out.println(i);
+        Stack<String> test = new Stack<String>();
+        test.push("mango");
+        test.push("apple");
+        test.push("bananas");
+        StringBuilder sb = new StringBuilder();
+        for (int i = test.size(); i >= 0; i--) {
         }
+        System.out.println(sb.reverse().toString());
     }
 }

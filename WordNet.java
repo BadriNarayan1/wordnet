@@ -4,30 +4,29 @@
  *  Description:
  **************************************************************************** */
 
+import edu.princeton.cs.algs4.Digraph;
 import edu.princeton.cs.algs4.In;
-import edu.princeton.cs.algs4.Queue;
+import edu.princeton.cs.algs4.SeparateChainingHashST;
 import edu.princeton.cs.algs4.Stack;
 
 public class WordNet {
-    private final Stack<String>[] synsets;
-    private final Stack<Integer>[] hypernyms;
+    private final String[] synsets;
+    private final SAP sap;
+    private final Digraph g;
+    private final SeparateChainingHashST<String, Stack<Integer>> forIndex;
     private int numOfEntries;
     private final boolean[] onStack;
     private final boolean[] markedForSort;
-    private final boolean[] marked;
-    private final int[] id;
-    private int count;
     private boolean isAsyclic;
-    private final Stack<Integer> topologicalSort;
 
     // constructor takes the name of the two input files
     public WordNet(String synsets, String hypernyms) {
         if (synsets == null || hypernyms == null) {
             throw new IllegalArgumentException();
         }
+        forIndex = new SeparateChainingHashST<String, Stack<Integer>>();
         int rooted = 0;
         isAsyclic = true;
-        count = 0;
         In file = new In(synsets);
         int numOfEntries = 0;
         String read;
@@ -36,25 +35,25 @@ public class WordNet {
         }
         file.close();
         this.numOfEntries = numOfEntries + 1;
-        topologicalSort = new Stack<Integer>();
         onStack = new boolean[numOfEntries + 1];
         markedForSort = new boolean[numOfEntries + 1];
-        marked = new boolean[numOfEntries + 1];
-        id = new int[this.numOfEntries];
-        this.synsets = (Stack<String>[]) new Stack[numOfEntries + 1];
-        this.hypernyms = (Stack<Integer>[]) new Stack[numOfEntries + 1];
-        for (int i = 0; i < numOfEntries + 1; i++) {
-            markedForSort[i] = false;
-            marked[i] = false;
-            this.synsets[i] = new Stack<String>();
-            this.hypernyms[i] = new Stack<Integer>();
-        }
+        g = new Digraph(this.numOfEntries);
+        this.synsets = new String[numOfEntries + 1];
         file = new In(synsets);
         while ((read = file.readLine()) != null) {
             String[] helper = read.split(",");
+            Stack<Integer> ids;
             numOfEntries = Integer.parseInt(helper[0]);
+            this.synsets[numOfEntries] = helper[1];
             for (String s : helper[1].split("\\s+")) {
-                this.synsets[numOfEntries].push(s);
+                if (forIndex.contains(s)) {
+                    ids = forIndex.get(s);
+                }
+                else {
+                    ids = new Stack<Integer>();
+                }
+                ids.push(numOfEntries);
+                forIndex.put(s, ids);
             }
         }
         file.close();
@@ -66,7 +65,7 @@ public class WordNet {
             }
             numOfEntries = Integer.parseInt(helper[0]);
             for (int i = 1, k = helper.length; i < k; i++) {
-                this.hypernyms[numOfEntries].push(Integer.parseInt(helper[i]));
+                g.addEdge(numOfEntries, Integer.parseInt(helper[i]));
             }
         }
         file.close();
@@ -81,29 +80,14 @@ public class WordNet {
         if (!isAsyclic) {
             throw new IllegalArgumentException();
         }
-
-        for (int i : topologicalSort) {
-            if (!marked[i]) {
-                dfs(i);
-                count++;
-            }
-        }
-
+        sap = new SAP(g);
     }
 
-    private void dfs(int i) {
-        id[i] = count;
-        for (int j : hypernyms[i]) {
-            if (!marked[j]) {
-                dfs(j);
-            }
-        }
-    }
 
     private void dfsForSort(int i) {
         markedForSort[i] = true;
         onStack[i] = true;
-        for (int j : hypernyms[i]) {
+        for (int j : g.adj(i)) {
             if (!markedForSort[j]) {
                 dfsForSort(j);
             }
@@ -112,16 +96,13 @@ public class WordNet {
             }
         }
         onStack[i] = false;
-        topologicalSort.push(i);
     }
 
     // returns all WordNet nouns
     public Iterable<String> nouns() {
         Stack<String> helper = new Stack<String>();
-        for (Stack<String> s : synsets) {
-            for (String noun : s) {
-                helper.push(noun);
-            }
+        for (String noun : synsets) {
+            helper.push(noun);
         }
         return helper;
     }
@@ -131,70 +112,37 @@ public class WordNet {
         if (word == null) {
             throw new IllegalArgumentException();
         }
-        return isNoun(word, 0, this.numOfEntries - 1);
+        return forIndex.contains(word);
     }
 
-    private boolean isNoun(String word, int start, int end) {
-        if (start < end) {
-            return false;
-        }
-        int mid = (start + end) / 2;
-        for (String s : synsets[mid]) {
-            if (s.equals(word)) {
-                return true;
-            }
-        }
-        if (word.compareTo(synsets[mid].peek()) < 0) {
-            return isNoun(word, start, mid - 1);
-        }
-        else {
-            return isNoun(word, mid + 1, end);
-        }
-    }
+
+    // private int indexOfNoun(String noun, int start, int end) {
+    //     if (start > end) {
+    //         return -1;
+    //     }
+    //     int mid = (start + end) / 2;
+    //     int compare;
+    //
+    //     if (synsets[mid].equals(noun)) {
+    //         return mid;
+    //     }
+    //
+    //     if (noun.compareTo(synsets[mid]) < 0) {
+    //         return indexOfNoun(noun, start, mid - 1);
+    //     }
+    //     else {
+    //         return indexOfNoun(noun, mid + 1, end);
+    //     }
+    // }
 
     // distance between nounA and nounB (defined below)
     public int distance(String nounA, String nounB) {
         if (nounA == null || nounB == null) {
             throw new IllegalArgumentException();
         }
-        boolean flagA = false;
-        int indexA = -1;
-        int indexB = -1;
-        boolean flagB = false;
-        boolean flag = false;
-        int minDistance = Integer.MAX_VALUE;
-        for (int i : topologicalSort) {
-            if (flagA && flagB) {
-                if ((id[i] == id[indexA]) && (id[i] == id[indexB])) {
-                    int helper = bfs(indexA, i) + bfs(indexB, i);
-                    if (helper < minDistance) {
-                        minDistance = helper;
-                        flag = true;
-                    }
-
-                }
-            }
-            else {
-                for (String s : synsets[i]) {
-                    if (s.equals(nounA)) {
-                        flagA = true;
-                        indexA = i;
-                    }
-                    if (s.equals(nounB)) {
-                        flagB = true;
-                        indexB = i;
-                    }
-                }
-            }
-
-        }
-        if (indexA == indexB) {
-            return 0;
-        }
-        if (flag) {
-            return minDistance;
-        }
-        return -1;
+        Stack<Integer> indexA = forIndex.get(nounA);
+        Stack<Integer> indexB = forIndex.get(nounB);
+        return sap.length(indexA, indexB);
     }
 
     // a synset (second field of synsets.txt) that is the common ancestor of nounA and nounB
@@ -203,70 +151,37 @@ public class WordNet {
         if (nounA == null || nounB == null) {
             throw new IllegalArgumentException();
         }
-        boolean flagA = false;
-        int indexA = -1;
-        int indexB = -1;
-        boolean flagB = false;
-        String answer = null;
-        int minDistance = Integer.MAX_VALUE;
-        for (int i : topologicalSort) {
-            if (flagA && flagB) {
-                if ((id[i] == id[indexA]) && (id[i] == id[indexB])) {
-                    int helper = bfs(indexA, i) + bfs(indexB, i);
-                    if (helper < minDistance) {
-                        minDistance = helper;
-                        StringBuilder sb = new StringBuilder();
-                        for (String s : synsets[i]) {
-                            sb.append(s);
-                        }
-                        answer = sb.reverse().toString();
-                    }
-
-                }
-            }
-            else {
-                for (String s : synsets[i]) {
-                    if (s.equals(nounA)) {
-                        flagA = true;
-                        indexA = i;
-                    }
-                    if (s.equals(nounB)) {
-                        flagB = true;
-                        indexB = i;
-                    }
-                }
-            }
-
-        }
-        if (indexA == indexB) {
-            return nounA;
-        }
-        return answer;
+        Stack<Integer> indexA = forIndex.get(nounA);
+        Stack<Integer> indexB = forIndex.get(nounB);
+        return synsets[sap.ancestor(indexA, indexB)];
     }
 
-    private int bfs(int i, int j) {
-        boolean[] markedForQueue = new boolean[numOfEntries];
-        int[] distance = new int[numOfEntries];
-        Queue<Integer> helper = new Queue<Integer>();
-        helper.enqueue(i);
-        while (!helper.isEmpty()) {
-            int reference = helper.dequeue();
-            if (reference == j) {
-                return distance[j];
-            }
-            markedForQueue[reference] = true;
-            for (int k : hypernyms[reference]) {
-                if (!markedForQueue[k]) {
-                    helper.enqueue(k);
-                    distance[k] = distance[reference] + 1;
-                }
-            }
-        }
-        return -1;
-    }
 
     // do unit testing of this class
     public static void main(String[] args) {
-
+        WordNet wn = new WordNet(
+                "/Users/mitul/Desktop/algorithms/Algorithms - 2/Assignment/wordnet/synsets100-subgraph.txt",
+                "/Users/mitul/Desktop/algorithms/Algorithms - 2/Assignment/wordnet/hypernyms100-subgraph.txt");
+        // for (int i = 0; i < wn.synsets.length; i++) {
+        //     System.out.println(i);
+        //     for (String s : wn.synsets[i]) {
+        //         System.out.println(s);
+        //     }
+        // }
+        // for (int i = 0; i < wn.hypernyms.length; i++) {
+        //     System.out.println(i);
+        //     for (int j : wn.hypernyms[i]) {
+        //         System.out.println(j);
+        //     }
+        // }
+        // System.out.println(wn.indexOfNoun("jimdandy jimhickey crackerjack"));
+        System.out.println(wn.isNoun("factor_IV"));
+        // System.out.println(wn.indexOfNoun("antihemophilic_globulin"));
+        // System.out.println(wn.indexOfNoun("CRP"));
+        // System.out.println(wn.indexOfNoun("C-reactive_protein"));
+        // System.out.println(wn.indexOfNoun("zymase"));
+        // System.out.println(wn.indexOfNoun("factor_IX"));
+        // System.out.println(wn.indexOfNoun("corn_gluten"));
+        // System.out.println(wn.indexOfNoun("factor_XIII"));
     }
 }
